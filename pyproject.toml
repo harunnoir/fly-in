@@ -1,0 +1,20 @@
+[project]
+name = "fly-in"
+version = "0.1.0"
+description = "A drone fleet routing simulation that navigates multiple drones through a graph of connected zones, minimizing simulation turns while respecting capacity constraints, zone types, and movement rules."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.13.4",
+]
+
+[tool.mypy]
+strict = true
+
+# [tool.mypy]
+# warn_return_any = true
+# warn_unused_ignores = true
+# ignore_missing_imports = true
+# disallow_untyped_defs = true
+# check_untyped_defs = true
+# python_version = "3.14"

@@ -2,6 +2,8 @@ from enum import Enum
 from pydantic import BaseModel
 from pathlib import Path
 
+from exceptions import ParsingError
+
 
 class ZoneType(Enum):
     """Enum representing the type of a zone."""
@@ -57,10 +59,50 @@ class MapParser:
                 f"Expected .txt file, got '{self._filepath.suffix}'"
             )
 
-    def __remove_comments(self, map_data) -> None:
-        pass
+    def __remove_comments(self, map_data: str) -> str:
+        return "\n".join(
+            line.split("#", 1)[0].strip()
+            for line in map_data.splitlines()
+            if line.split("#", 1)[0].strip()
+        )
 
     def parse(self) -> Graph | None:
-        content = self._filepath.read_text()
-        self.__remove_comments(content)
-        return None
+        lines = self.__remove_comments(self._filepath.read_text())
+        if not lines.strip():
+            raise ValueError("Map file is empty")
+        nb_drones: int | None = None
+        start_hub: Zone | None = None
+        end_hub: Zone | None = None
+        zones: dict[str, Zone] = {}
+        connections: list[Connection] = []
+
+        for i, line in enumerate(lines, start=1):
+            if line.startswith("nb_drones"):
+                if nb_drones is not None:
+                    raise ValueError("Duplicate nb_drones definition")
+                nb_drones = int(line.split(":")[1].strip())
+            if line.startswith("nb_drones:"):
+                if nb_drones is not None:
+                    raise ParsingError(i, "Duplicate nb_drones definition")
+                ...
+            elif line.startswith("start_hub:"):
+                ...
+            elif line.startswith("end_hub:"):
+                ...
+            elif line.startswith("hub:"):
+                ...
+            elif line.startswith("connection:"):
+                ...
+            else:
+                raise ParsingError(i, f"Unrecognized line: {line}")
+
+        # validate required fields
+        ...
+
+        return Graph(
+            nb_drones=nb_drones,
+            start_hub=start_hub,
+            end_hub=end_hub,
+            zones=zones,
+            connections=connections,
+        )

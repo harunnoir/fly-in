@@ -4,10 +4,15 @@ class FlyInError(Exception):
     pass
 
 
+class EmptyFileError(FlyInError):
+    """Raised when the input file is empty."""
+
+    def __init__(self, message: str = "The input file is empty.") -> None:
+        super().__init__(message)
+
+
 class ParsingError(FlyInError):
     """Base exception for all parsing errors, includes line number."""
-
-    line: int
 
     def __init__(self, line: int, message: str) -> None:
         """Initialize with line number and error message.
@@ -16,7 +21,6 @@ class ParsingError(FlyInError):
             line: The line number where the error occurred.
             message: A description of the parsing error.
         """
-        self.line = line
         super().__init__(f"Line {line}: {message}")
 
 
