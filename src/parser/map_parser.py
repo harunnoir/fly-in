@@ -66,6 +66,41 @@ class MapParser:
             if line.split("#", 1)[0].strip()
         )
 
+    def __parse_hub(self, line: str, zones: dict[str, Zone]) -> Zone:
+        parts = line.split()
+        name = parts[0]
+        x = int(parts[1])
+        y = int(parts[2])
+        zone_type = ZoneType.NORMAL
+        color = None
+        max_drones = 1
+        meta_str = " ".join(parts[3:])
+        if meta_str:
+            for kv in meta_str.strip("[]").split():
+                key, val = kv.split("=", 1)
+                if key == "zone":
+                    zone_type = ZoneType(val)
+                elif key == "color":
+                    color = val
+                elif key == "max_drones":
+                    max_drones = int(val)
+                else:
+                    raise ValueError(f"Unknown metadata key '{key}'")
+        if name in zones:
+            raise ValueError(f"Zone '{name}' already exists")
+        if any(z.x == x and z.y == y for z in zones.values()):
+            raise ValueError(f"Zone at coordinates ({x}, {y}) already exists")
+        return Zone(
+            name=name,
+            x=x,
+            y=y,
+            zone_type=zone_type,
+            color=color,
+            max_drones=max_drones,
+        )
+
+    def __parse_connection(self, line: str) -> Connection: ...
+
     def parse(self) -> Graph | None:
         lines = self.__remove_comments(self._filepath.read_text())
         if not lines.strip():
@@ -76,28 +111,37 @@ class MapParser:
         zones: dict[str, Zone] = {}
         connections: list[Connection] = []
 
-        for i, line in enumerate(lines, start=1):
-            if line.startswith("nb_drones"):
-                if nb_drones is not None:
-                    raise ValueError("Duplicate nb_drones definition")
-                nb_drones = int(line.split(":")[1].strip())
-            if line.startswith("nb_drones:"):
-                if nb_drones is not None:
-                    raise ParsingError(i, "Duplicate nb_drones definition")
-                ...
-            elif line.startswith("start_hub:"):
-                ...
+        if lines.splitlines()[0].startswith("nb_drones:"):
+            nb_drones = int(lines.splitlines()[0][len("nb_drones:") :].strip())
+        else:
+            raise ValueError(
+                "File should start with the number of drones first"
+            )
+        for line in lines:
+            if line.startswith("start_hub:"):
+                start_hub = self.__parse_hub(line, zones)
             elif line.startswith("end_hub:"):
-                ...
+                end_hub = self.__parse_hub(line, zones)
+                zones[end_hub.name] = end_hub
             elif line.startswith("hub:"):
-                ...
+                hub = self.__parse_hub(line, zones)
+                zones[hub.name] = hub
             elif line.startswith("connection:"):
                 ...
             else:
-                raise ParsingError(i, f"Unrecognized line: {line}")
+                raise ValueError(f"Unrecognized line: {line}")
 
         # validate required fields
         ...
+
+        if start_hub is None:
+            raise ValueError(
+                "start_hub is required but was not found in the map file"
+            )
+        if end_hub is None:
+            raise ValueError(
+                "end_hub is required but was not found in the map file"
+            )
 
         return Graph(
             nb_drones=nb_drones,
