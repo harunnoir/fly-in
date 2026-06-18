@@ -2,7 +2,18 @@ from enum import Enum
 from pydantic import BaseModel
 from pathlib import Path
 
-from exceptions import ParsingError
+
+class ParsingError(Exception):
+    """Base exception for all parsing errors, includes line number."""
+
+    def __init__(self, line: int, message: str) -> None:
+        """Initialize with line number and error message.
+
+        Args:
+            line: The line number where the error occurred.
+            message: A description of the parsing error.
+        """
+        super().__init__(f"Line {line}: {message}")
 
 
 class ZoneType(Enum):
@@ -52,11 +63,11 @@ class MapParser:
         self._filepath = Path(filepath)
 
         if not self._filepath.exists():
-            raise FileNotFoundError(f"Map file '{self._filepath}' not found")
+            raise ParsingError(0, f"Map file '{self._filepath}' not found")
 
         if self._filepath.suffix != ".txt":
-            raise ValueError(
-                f"Expected .txt file, got '{self._filepath.suffix}'"
+            raise ParsingError(
+                0, f"Expected .txt file, got '{self._filepath.suffix}'"
             )
 
     def __remove_comments(self, map_data: str) -> str:
@@ -99,54 +110,72 @@ class MapParser:
             max_drones=max_drones,
         )
 
-    def __parse_connection(self, line: str) -> Connection: ...
+    def __parse_connection(self, line: str) -> Connection:
+        content = line.removeprefix("connection:").strip()
+        parts = content.split()
 
-    def parse(self) -> Graph | None:
-        lines = self.__remove_comments(self._filepath.read_text())
-        if not lines.strip():
+        zone1, zone2 = parts[0].split("-", 1)
+
+        capacity = 1
+        if len(parts) > 1:
+            meta = parts[1][1:-1]  # remove [ ]
+            capacity = int(meta.split("=", 1)[1])
+
+        return Connection(
+            zone1=zone1,
+            zone2=zone2,
+            max_link_capacity=capacity,
+        )
+
+    def parse(self) -> Graph:
+        lines = self.__remove_comments(self._filepath.read_text()).splitlines()
+        if not lines:
             raise ValueError("Map file is empty")
         nb_drones: int | None = None
-        start_hub: Zone | None = None
-        end_hub: Zone | None = None
         zones: dict[str, Zone] = {}
         connections: list[Connection] = []
 
-        if lines.splitlines()[0].startswith("nb_drones:"):
-            nb_drones = int(lines.splitlines()[0][len("nb_drones:") :].strip())
+        if lines[0].startswith("nb_drones:"):
+            try:
+                nb_drones = int(lines[0][len("nb_drones:") :].strip())
+            except (ValueError, IndexError) as e:
+                raise ValueError(
+                    f"Invalid nb_drones value or format in the map file: {e}"
+                )
+            if nb_drones < 1:
+                raise ValueError("nb_drones must be at least 1")
         else:
             raise ValueError(
                 "File should start with the number of drones first"
             )
-        for line in lines:
-            if line.startswith("start_hub:"):
-                start_hub = self.__parse_hub(line, zones)
-            elif line.startswith("end_hub:"):
-                end_hub = self.__parse_hub(line, zones)
-                zones[end_hub.name] = end_hub
-            elif line.startswith("hub:"):
+        for line in lines[1:]:
+            if (
+                line.startswith("start_hub:")
+                or line.startswith("end_hub:")
+                or line.startswith("hub:")
+            ):
                 hub = self.__parse_hub(line, zones)
                 zones[hub.name] = hub
+
             elif line.startswith("connection:"):
-                ...
+                connections.append(self.__parse_connection(line))
+
             else:
                 raise ValueError(f"Unrecognized line: {line}")
 
-        # validate required fields
-        ...
-
-        if start_hub is None:
+        if "start" not in zones:
             raise ValueError(
                 "start_hub is required but was not found in the map file"
             )
-        if end_hub is None:
+        if "goal" not in zones:
             raise ValueError(
                 "end_hub is required but was not found in the map file"
             )
 
         return Graph(
             nb_drones=nb_drones,
-            start_hub=start_hub,
-            end_hub=end_hub,
+            start_hub=zones["start_hub"],
+            end_hub=zones["end_hub"],
             zones=zones,
             connections=connections,
         )
