@@ -1,17 +1,21 @@
+.PHONY: install run debug clean lint lint-strict
+
 install:
-	echo "Installing..."
+	pip install mypy flake8 colorama
 
 run:
-	echo "Running..."
+	python main.py
 
 debug:
-	echo "Debugging..."
+	python -m pdb main.py
 
 clean:
-	echo "Cleaning..."
+	rm -rf __pycache__ .mypy_cache .pytest_cache *.pyc *.pyo venv .venv
 
 lint:
-	echo "Linting..."
+	flake8 .
+	mypy . --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
 
 lint-strict:
-	echo "Linting strictly..."
+	flake8 .
+	mypy . --strict
