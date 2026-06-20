@@ -17,4 +17,4 @@ connection: slow_path2-slow_path3
 connection: slow_path3-merge_point
 connection: fast_junction-fast_path
 connection: fast_path-merge_point
-connection: merge_point-goal
+connection: merge_point-goal 
