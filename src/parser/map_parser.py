@@ -34,6 +34,7 @@ class Zone(BaseModel):
     zone_type: ZoneType = ZoneType.NORMAL
     color: str | None = None
     max_drones: int = 1
+    neighbors: list[tuple["Zone", "Connection", int]] | None = None # TODO: 
 
     @model_validator(mode="after")
     def validate_zone(self) -> "Zone":
