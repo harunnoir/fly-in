@@ -1,5 +1,6 @@
+from __future__ import annotations
 from enum import Enum
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, Field
 from pathlib import Path
 
 
@@ -25,6 +26,31 @@ class ZoneType(Enum):
     PRIORITY = "priority"
 
 
+class Connection(BaseModel):
+    """Represents a bidirectional connection between two zones."""
+
+    zone1: Zone
+    zone2: Zone
+    max_link_capacity: int = 1
+    drones_in_transit: list[str] = []  # Track IDs of drones currently "flying"
+
+    @model_validator(mode="after")
+    def validate_connection(self) -> "Connection":
+        """Validate all connection constraints."""
+        if self.zone1 == self.zone2:
+            raise ParsingError(f"Connection cannot link zone '{self.zone1}' to itself")
+        if self.max_link_capacity < 1:
+            raise ParsingError("max_link_capacity must be a positive integer")
+        return self
+
+
+class Link(BaseModel):
+    """A directional shortcut to a neighbor."""
+
+    target: Zone
+    connection: Connection
+
+
 class Zone(BaseModel):
     """Represents a zone/hub in the drone network."""
 
@@ -34,7 +60,7 @@ class Zone(BaseModel):
     zone_type: ZoneType = ZoneType.NORMAL
     color: str | None = None
     max_drones: int = 1
-    neighbors: list[tuple["Zone", "Connection", int]] | None = None # TODO: 
+    links: list[Link] = Field(default=[], exclude=True)
 
     @model_validator(mode="after")
     def validate_zone(self) -> "Zone":
@@ -48,22 +74,13 @@ class Zone(BaseModel):
             raise ParsingError("color must be a single-word string")
         return self
 
+    def get_travel_cost(self) -> int:
+        if self.zone_type == ZoneType.RESTRICTED:
+            return 2
+        return 1
 
-class Connection(BaseModel):
-    """Represents a bidirectional connection between two zones."""
-
-    zone1: str
-    zone2: str
-    max_link_capacity: int = 1
-
-    @model_validator(mode="after")
-    def validate_connection(self) -> "Connection":
-        """Validate all connection constraints."""
-        if self.zone1 == self.zone2:
-            raise ParsingError(f"Connection cannot link zone '{self.zone1}' to itself")
-        if self.max_link_capacity < 1:
-            raise ParsingError("max_link_capacity must be a positive integer")
-        return self
+    def is_accessible(self) -> bool:
+        return self.zone_type != ZoneType.BLOCKED
 
 
 class Graph(BaseModel):
@@ -74,6 +91,11 @@ class Graph(BaseModel):
     end_hub: Zone
     zones: dict[str, Zone] = {}
     connections: list[Connection] = []
+
+    def reset(self) -> None:
+        """Clears all drones from zones and connections."""
+        for conn in self.connections:
+            conn.drones_in_transit.clear()
 
 
 class MapParser:
@@ -163,8 +185,8 @@ class MapParser:
         if zone1 not in zones or zone2 not in zones:
             raise ParsingError(f"Unknown zone in connection '{zone1}-{zone2}'", linenb)
         if any(
-            (c.zone1 == zone1 and c.zone2 == zone2)
-            or (c.zone2 == zone1 and c.zone1 == zone2)
+            (c.zone1.name == zone1 and c.zone2.name == zone2)
+            or (c.zone2.name == zone1 and c.zone1.name == zone2)
             for c in connections
         ):
             raise ParsingError(
@@ -190,11 +212,14 @@ class MapParser:
                     linenb,
                 )
 
-        return Connection(
-            zone1=zone1,
-            zone2=zone2,
+        conn = Connection(
+            zone1=zones[zone1],
+            zone2=zones[zone2],
             max_link_capacity=capacity,
         )
+        zones[zone1].links.append(Link(target=zones[zone2], connection=conn))
+        zones[zone2].links.append(Link(target=zones[zone1], connection=conn))
+        return conn
 
     def parse(self, filepath: str) -> Graph:
         lines = self.__remove_comments(
@@ -260,3 +285,8 @@ class MapParser:
             zones=zones,
             connections=connections,
         )
+
+
+Zone.model_rebuild()
+Connection.model_rebuild()
+Link.model_rebuild()
