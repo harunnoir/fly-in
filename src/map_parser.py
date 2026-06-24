@@ -74,10 +74,13 @@ class Zone(BaseModel):
             raise ParsingError("color must be a single-word string")
         return self
 
-    def get_travel_cost(self) -> int:
+    def get_path_weight(self) -> float:
+        """Returns the weight for the pathfinding algorithm."""
         if self.zone_type == ZoneType.RESTRICTED:
-            return 2
-        return 1
+            return 2.0
+        if self.zone_type == ZoneType.PRIORITY:
+            return 0.9  # Prefer priority by making it 'cheaper' than 1.0
+        return 1.0
 
     def is_accessible(self) -> bool:
         return self.zone_type != ZoneType.BLOCKED
