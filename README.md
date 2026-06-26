@@ -1,22 +1,16 @@
-# Fly-in
+*This project has been created as part of the 42 curriculum by abait-el.*
 
-Control multiple drones navigating through connected zones while minimizing the
-number of simulation turns required.
+# call-me-maby
 
----
+> Control multiple drones navigating through connected zones while minimizing the number of simulation turns required.
 
 ## Subject
 
-Official specification:
-[subject](https://cdn.intra.42.fr/pdf/pdf/207392/en.subject.pdf)
+> [!NOTE]
+> Subject PDF: [en.subject.pdf](https://cdn.intra.42.fr/pdf/pdf/207392/en.subject.pdf)
+> *(Link always points to the latest version — may differ from the one I solved)*
 
-> **NOTE**
-> Solved version is: `1.4`
-
----
-
-## Test maps
-
+## Assets
 To download the provided test maps:
 
 ```bash
