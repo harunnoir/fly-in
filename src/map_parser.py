@@ -7,14 +7,21 @@ from pathlib import Path
 class ParsingError(Exception):
     """Base exception for all parsing errors, includes optional line number."""
 
-    def __init__(self, message: str, line: int | None = None) -> None:
+    def __init__(
+        self, message: str, linenb: int | None = None, line: str | None = None
+    ) -> None:
         """Initialize with error message and optional line number.
 
         Args:
             message: A description of the parsing error.
             line: The line number where the error occurred, if applicable.
         """
-        super().__init__(f"Line {line}: {message}" if line else message)
+
+        if linenb is not None:
+            message = f"Line {linenb}: {message}"
+        if line is not None:
+            message += f" -> `{line}`"
+        super().__init__(message)
 
 
 class ZoneType(Enum):
@@ -131,13 +138,15 @@ class MapParser:
             x = int(parts[1])
             y = int(parts[2])
         except (IndexError, ValueError) as e:
-            raise ParsingError(f"Invalid hub format: {e}", linenb)
+            raise ParsingError(f"Invalid hub format: {e}", linenb, line)
         zone_type = ZoneType.NORMAL
         color = None
         max_drones = 1
         meta_str = " ".join(parts[3:])
         if meta_str:
             for kv in meta_str.removeprefix("[").removesuffix("]").split():
+                if "=" not in kv:
+                    raise ParsingError("Invalid metadata format", linenb, line)
                 key, val = kv.split("=", 1)
                 if key == "zone":
                     try:
@@ -147,6 +156,7 @@ class MapParser:
                             f"Invalid zone type '{val}', must be one"
                             + "of: normal, blocked, restricted, priority",
                             linenb,
+                            line,
                         )
                 elif key == "color":
                     color = val
@@ -157,13 +167,16 @@ class MapParser:
                         raise ParsingError(
                             f"max_drones must be a positive integer, got '{val}'",
                             linenb,
+                            line,
                         )
                 else:
-                    raise ParsingError(f"Unknown metadata key '{key}'", linenb)
+                    raise ParsingError(f"Unknown metadata key '{key}'", linenb, line)
         if name in zones:
-            raise ParsingError(f"Zone '{name}' already exists", linenb)
+            raise ParsingError(f"Zone '{name}' already exists", linenb, line)
         if any(z.x == x and z.y == y for z in zones.values()):
-            raise ParsingError(f"Zone at coordinates ({x}, {y}) already exists", linenb)
+            raise ParsingError(
+                f"Zone at coordinates ({x}, {y}) already exists", linenb, line
+            )
         return Zone(
             name=name,
             x=x,
@@ -186,33 +199,36 @@ class MapParser:
         zone1, zone2 = parts[0].split("-", 1)
 
         if zone1 not in zones or zone2 not in zones:
-            raise ParsingError(f"Unknown zone in connection '{zone1}-{zone2}'", linenb)
+            raise ParsingError(
+                f"Unknown zone in connection '{zone1}-{zone2}'", linenb, line
+            )
         if any(
             (c.zone1.name == zone1 and c.zone2.name == zone2)
             or (c.zone2.name == zone1 and c.zone1.name == zone2)
             for c in connections
         ):
             raise ParsingError(
-                f"Connection between '{zone1}-{zone2}' already exists", linenb
+                f"Connection between '{zone1}-{zone2}' already exists", linenb, line
             )
         capacity = 1
         if len(parts) > 1:
             meta_str = parts[1].strip("[]")
             if "=" not in meta_str:
-                raise ParsingError("Invalid metadata format", linenb)
+                raise ParsingError("Invalid metadata format", linenb, line)
             key, val = meta_str.split("=", 1)
             if key != "max_link_capacity":
-                raise ParsingError(f"Unknown connection metadata key '{key}'", linenb)
+                raise ParsingError(
+                    f"Unknown connection metadata key '{key}'", linenb, line
+                )
             try:
                 capacity = int(val)
                 if capacity < 1:
                     raise ParsingError(
-                        "max_link_capacity should be positive integer", linenb
+                        "max_link_capacity should be positive integer", linenb, line
                     )
             except ValueError:
                 raise ParsingError(
-                    f"max_link_capacity must be an integer, got '{val}'",
-                    linenb,
+                    f"max_link_capacity must be an integer, got '{val}'", linenb, line
                 )
 
         conn = Connection(
@@ -239,9 +255,11 @@ class MapParser:
         if lines[0].startswith("nb_drones:"):
             try:
                 nb_drones = int(lines[0][len("nb_drones:") :].strip())
-            except (ValueError, IndexError) as e:
+            except IndexError:
+                raise ParsingError("Map file is empty or missing 'nb_drones' line")
+            except ValueError:
                 raise ParsingError(
-                    f"Invalid nb_drones value or format in the map file: {e}"
+                    f"'nb_drones' value is not a valid integer: '{lines[0]}'"
                 )
             if nb_drones < 1:
                 raise ParsingError("nb_drones must be at least 1")
@@ -258,12 +276,14 @@ class MapParser:
                 if line.startswith("start_hub"):
                     if start_hub is not None:
                         raise ParsingError(
-                            "Multiple start_hub definitions found", linenb
+                            "Multiple start_hub definitions found", linenb, line
                         )
                     start_hub = hub
                 elif line.startswith("end_hub"):
                     if end_hub is not None:
-                        raise ParsingError("Multiple end_hub definitions found", linenb)
+                        raise ParsingError(
+                            "Multiple end_hub definitions found", linenb, line
+                        )
                     end_hub = hub
 
             elif line.startswith("connection:"):
