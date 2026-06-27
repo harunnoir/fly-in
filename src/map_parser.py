@@ -310,6 +310,6 @@ class MapParser:
         )
 
 
-Zone.model_rebuild()
-Connection.model_rebuild()
-Link.model_rebuild()
+_ = Zone.model_rebuild()
+_ = Connection.model_rebuild()
+_ = Link.model_rebuild()
