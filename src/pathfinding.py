@@ -4,3 +4,4 @@ import heapq
 from src.map_parser import Graph, Zone, ZoneType
 
 
+class ShortestPathFinder: ...
