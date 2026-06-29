@@ -208,3 +208,6 @@ __marimo__/
 
 ./tasks.sh
 ./TODO.md
+./zip.sh
+./*.zip
+./visual
