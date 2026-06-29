@@ -4,4 +4,7 @@ import heapq
 from src.map_parser import Graph, Zone, ZoneType
 
 
-class ShortestPathFinder: ...
+class ShortestPathFinder:
+    def find(self, graph: Graph) -> list[Zone]:
+        """Returns ordered list of zones: [start, ..., end]"""
+        ...
