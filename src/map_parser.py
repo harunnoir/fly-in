@@ -10,11 +10,12 @@ class ParsingError(Exception):
     def __init__(
         self, message: str, linenb: int | None = None, line: str | None = None
     ) -> None:
-        """Initialize with error message and optional line number.
+        """Initialize with error message and optional line number / source line.
 
         Args:
             message: A description of the parsing error.
-            line: The line number where the error occurred, if applicable.
+            linenb: The line number where the error occurred, if applicable.
+            line: The raw source line that caused the error, if applicable.
         """
 
         if linenb is not None:
@@ -71,6 +72,7 @@ class Zone(BaseModel):
 
     @model_validator(mode="after")
     def validate_zone(self) -> "Zone":
+        """Validate zone constraints: name format, max_drones, and color."""
         if "-" in self.name or " " in self.name:
             raise ParsingError(
                 f"Zone name '{self.name}' must not contain dashes or spaces"
@@ -90,6 +92,7 @@ class Zone(BaseModel):
         return 1.0
 
     def is_accessible(self) -> bool:
+        """Check whether this zone can be entered by a drone."""
         return self.zone_type != ZoneType.BLOCKED
 
 
@@ -113,6 +116,17 @@ class MapParser:
 
     @staticmethod
     def __load_file(filepath: str) -> Path:
+        """Load and validate the map file path.
+
+        Args:
+            filepath: Path to the .txt map file.
+
+        Returns:
+            A Path object pointing to the existing .txt file.
+
+        Raises:
+            ParsingError: If the file doesn't exist or isn't a .txt file.
+        """
         file = Path(filepath)
 
         if not file.exists():
@@ -124,6 +138,17 @@ class MapParser:
 
     @staticmethod
     def __remove_comments(map_data: str) -> str:
+        """Strip comments and blank lines from raw map data.
+
+        Everything after a ``#`` character is treated as a comment.
+        Lines that become empty after stripping are removed entirely.
+
+        Args:
+            map_data: Raw text content of a map file.
+
+        Returns:
+            Clean map content with one significant line per entry.
+        """
         return "\n".join(
             line.split("#", 1)[0].strip()
             for line in map_data.splitlines()
@@ -132,6 +157,23 @@ class MapParser:
 
     @staticmethod
     def __parse_hub(line: str, linenb: int, zones: dict[str, Zone]) -> Zone:
+        """Parse a single hub/zone definition line.
+
+        Expected format::
+
+            hub <name> <x> <y> [zone=<type>] [color=<c>] [max_drones=<n>]
+
+        Args:
+            line:   The raw line from the map file.
+            linenb: Current line number (for error reporting).
+            zones:  Accumulated zones dict (used for duplicate detection).
+
+        Returns:
+            A new Zone instance.
+
+        Raises:
+            ParsingError: On invalid format, duplicates, or bad metadata.
+        """
         parts = line.split()[1:]
         try:
             name = parts[0]
@@ -193,6 +235,26 @@ class MapParser:
         zones: dict[str, Zone],
         connections: list[Connection],
     ) -> Connection:
+        """Parse a connection definition line.
+
+        Expected format::
+
+            connection: <zone1>-<zone2> [max_link_capacity=<n>]
+
+        Also appends directional Link objects to each involved zone.
+
+        Args:
+            line:        The raw line from the map file.
+            linenb:      Current line number (for error reporting).
+            zones:       Accumulated zones dict (lookup by name).
+            connections: Accumulated connections list (duplicate check).
+
+        Returns:
+            A new Connection instance.
+
+        Raises:
+            ParsingError: On unknown zones, duplicate connections, or bad metadata.
+        """
         content = line.removeprefix("connection:").strip()
         parts = content.split()
 
@@ -241,6 +303,21 @@ class MapParser:
         return conn
 
     def parse(self, filepath: str) -> Graph:
+        """Parse a complete map file into a Graph object.
+
+        The file must start with ``nb_drones: <int>``, followed by
+        hub and connection definitions.  Exactly one ``start_hub``
+        and one ``end_hub`` are required.
+
+        Args:
+            filepath: Path to the ``.txt`` map file.
+
+        Returns:
+            A fully populated Graph ready for pathfinding / simulation.
+
+        Raises:
+            ParsingError: On any structural or semantic error in the file.
+        """
         lines = self.__remove_comments(
             self.__load_file(filepath).read_text()
         ).splitlines()
