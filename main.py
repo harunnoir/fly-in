@@ -1,5 +1,5 @@
 import sys
-from src import MapParser, ParsingError
+from src import MapParser, ParsingError, ShortestPathFinder
 
 
 def main() -> int:
@@ -9,10 +9,10 @@ def main() -> int:
         print(f"[PARSING ERROR]: {e}")
         return 1
 
-    print(graph.model_dump_json(indent=2))
-    return 0
+    # print(graph.model_dump_json(indent=2))
     # 2. Find the path
-    # path = find_shortest_path(graph, graph.start_hub, graph.end_hub)
+    path = ShortestPathFinder().find(graph)
+    print(" -> ".join(zone.name for zone in path))
     #
     # # 3. Print the result
     # if path:
@@ -20,7 +20,7 @@ def main() -> int:
     #     print(" -> ".join([z.name for z in path]))
     # else:
     #     print("No path possible on this map!")
-    # return 0
+    return 0
 
 
 if __name__ == "__main__":

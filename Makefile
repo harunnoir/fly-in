@@ -1,10 +1,10 @@
 .PHONY: install run debug clean lint lint-strict
 
 install:
-	pip install mypy flake8 colorama
+	uv install mypy flake8 colorama
 
 run:
-	python main.py
+	uv run main.py
 
 debug:
 	python -m pdb main.py
