@@ -5,7 +5,10 @@ description = "A drone fleet routing simulation that navigates multiple drones t
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "colorama>=0.4.6",
     "debugpy>=1.8.21",
+    "flake8>=7.3.0",
+    "mypy>=2.3.0",
     "pydantic>=2.13.4",
 ]
 

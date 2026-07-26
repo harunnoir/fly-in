@@ -1,25 +1,31 @@
 import sys
-from src import MapParser, ParsingError, ShortestPathFinder
+from src import MapParser, ParsingError, PathFinder
+import argparse
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Fly-in drone routing simulator")
+    _ = parser.add_argument("map_file", help="Path to the map file")
+    _ = parser.add_argument(
+        "--visual", action="store_true", help="Enable colored terminal output"
+    )
+    return parser.parse_args()
 
 
 def main() -> int:
+    args = parse_args()
     try:
-        graph = MapParser().parse("./maps/hard/03_ultimate_challenge.txt")
+        graph = MapParser().parse(args.map_file)
     except ParsingError as e:
         print(f"[PARSING ERROR]: {e}")
         return 1
 
-    # print(graph.model_dump_json(indent=2))
-    # 2. Find the path
-    path = ShortestPathFinder().find(graph)
-    print(" -> ".join(zone.name for zone in path))
-    #
-    # # 3. Print the result
-    # if path:
-    #     print(f"Path found ({len(path)} steps):")
-    #     print(" -> ".join([z.name for z in path]))
-    # else:
-    #     print("No path possible on this map!")
+    paths = PathFinder(graph).find()
+    if not paths:
+        print("No path possible on this map!")
+        return 1
+    for cost, path in paths:
+        print(f"[cost={cost}] {' -> '.join(path)}")
     return 0
 
 

@@ -211,3 +211,7 @@ TODO.md
 zip.sh
 *.zip
 visual/
+
+tmp
+*.tar.gz
+*.txt

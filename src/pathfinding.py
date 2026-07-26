@@ -1,163 +1,192 @@
-import heapq
+from __future__ import annotations
 
-from src.map_parser import Graph, Zone
+import math
+from heapq import heappop, heappush
+
+from src.map_parser import Graph
 
 
-class ShortestPathFinder:
-    """Finds the shortest path in a drone network graph using Dijkstra's algorithm.
+class PathFinder:
+    """K-shortest paths using Dijkstra + Yen's algorithm.
 
-    Weights are determined by zone type:
-        - normal:     1.0
-        - priority:   0.9  (preferred over normal)
-        - restricted: 2.0  (costs 2 turns to enter)
-        - blocked:    skipped (inaccessible)
+    Finds up to K loopless paths from start_hub to end_hub,
+    useful for distributing drones across alternative routes.
     """
 
-    # -------------------------
-    # PUBLIC API
-    # -------------------------
+    _graph: Graph
+    _k: int
+    _start: str
+    _goal: str
 
-    def find(self, graph: Graph) -> list[Zone]:
-        """Find the shortest path from start_hub to end_hub.
+    def __init__(self, graph: Graph, k: int = 5) -> None:
+        """Initialize the pathfinder.
 
         Args:
             graph: The parsed drone network graph.
+            k: Number of shortest paths to find.
+        """
+        self._graph = graph
+        self._k = k
+        self._start = graph.start_hub.name
+        self._goal = graph.end_hub.name
+
+    def find(self) -> list[tuple[float, list[str]]]:
+        """Find K shortest paths from start to end.
 
         Returns:
-            Ordered list of zones from start to goal.
-            Empty list if no path exists.
+            List of (cost, path) tuples sorted by cost.
+            path is a list of zone names from start to end.
+            Returns empty list if no path exists.
         """
-        start_name, goal_name = self._get_start_and_goal_names(graph)
-        cost_table, came_from = self._init_tables(graph, start_name)
-        self._dijkstra(graph, start_name, goal_name, cost_table, came_from)
-        return self._reconstruct_path(graph, goal_name, came_from)
-
-    # -------------------------
-    # INITIALIZATION
-    # -------------------------
-
-    def _get_start_and_goal_names(self, graph: Graph) -> tuple[str, str]:
-        """Extract zone names of the start and goal hubs.
-
-        Args:
-            graph: The drone network graph.
-
-        Returns:
-            Tuple of (start_name, goal_name).
-        """
-        return (graph.start_hub.name, graph.end_hub.name)
-
-    def _init_tables(
-        self,
-        graph: Graph,
-        start_name: str,
-    ) -> tuple[dict[str, float], dict[str, str | None]]:
-        """Initialize cost and path-tracking tables for Dijkstra.
-
-        All zones start with infinite cost except start (cost=0).
-        All zones start with no known predecessor.
-
-        Args:
-            graph: The drone network graph.
-            start_name: Name of the starting zone.
-
-        Returns:
-            cost_table: Maps zone name -> best known cost to reach it.
-            came_from:  Maps zone name -> name of zone we came from.
-        """
-        cost_table: dict[str, float] = {
-            zone_name: float("inf") for zone_name in graph.zones
-        }
-        came_from: dict[str, str | None] = {
-            zone_name: None for zone_name in graph.zones
-        }
-        cost_table[start_name] = 0.0
-        return cost_table, came_from
-
-    # -------------------------
-    # CORE DIJKSTRA
-    # -------------------------
+        return self._yen()
 
     def _dijkstra(
         self,
-        graph: Graph,
-        start_name: str,
-        goal_name: str,
-        cost_table: dict[str, float],
-        came_from: dict[str, str | None],
-    ) -> None:
-        """Run Dijkstra's algorithm, updating cost_table and came_from in place.
-
-        Uses a min-heap (priority queue) to always explore the cheapest
-        unvisited zone first. Stops as soon as the goal is popped -
-        guaranteed to be the shortest path at that point.
+        src: str,
+        dst: str,
+        excluded_nodes: set[str] | None = None,
+        excluded_edges: set[frozenset[str]] | None = None,
+    ) -> tuple[float, list[str]]:
+        """Run Dijkstra from src to dst.
 
         Args:
-            graph:      The drone network graph.
-            start_name: Name of the starting zone.
-            goal_name:  Name of the destination zone.
-            cost_table: Best known cost to reach each zone (modified in place).
-            came_from:  Predecessor of each zone on best path (modified in place).
+            src: Source zone name.
+            dst: Destination zone name.
+            excluded_nodes: Zone names to skip during traversal.
+            excluded_edges: Edges (as frozensets) to skip during traversal.
+
+        Returns:
+            Tuple of (cost, path_names) where path_names goes from src to dst.
+            Returns (inf, []) if no path exists.
         """
-        # Heap entries are (cost, zone_name) — heapq pops smallest cost first
-        heap: list[tuple[float, str]] = [(0.0, start_name)]
+        if excluded_nodes is None:
+            excluded_nodes = set()
+        if excluded_edges is None:
+            excluded_edges = set()
+
+        dist: dict[str, float] = {src: 0.0}
+        came_from: dict[str, str | None] = {src: None}
+        heap: list[tuple[float, str]] = [(0.0, src)]
+        visited: set[str] = set()
 
         while heap:
-            current_cost, current_zone_name = heapq.heappop(heap)
+            cost, current = heappop(heap)
 
-            # Skip stale heap entries — a cheaper path was already found
-            if current_cost > cost_table[current_zone_name]:
+            if current in visited:
                 continue
+            visited.add(current)
 
-            # Goal reached — shortest path is guaranteed, stop early
-            if current_zone_name == goal_name:
-                return
+            if current == dst:
+                return (cost, self._reconstruct_path(came_from, current))
 
-            current_zone = graph.zones[current_zone_name]
+            zone = self._graph.zones[current]
 
-            for link in current_zone.links:
+            for link in zone.links:
                 neighbor_name = link.target.name
-                edge_weight = float(link.target.get_path_weight())
-                cost_through_current = current_cost + edge_weight
 
-                # Found a cheaper path to this neighbor — update and push
-                if cost_through_current < cost_table[neighbor_name]:
-                    cost_table[neighbor_name] = cost_through_current
-                    came_from[neighbor_name] = current_zone_name
-                    heapq.heappush(heap, (cost_through_current, neighbor_name))
+                if neighbor_name in excluded_nodes:
+                    continue
 
-    # -------------------------
-    # PATH RECONSTRUCTION
-    # -------------------------
+                edge = frozenset({current, neighbor_name})
+                if edge in excluded_edges:
+                    continue
+
+                if not link.target.is_accessible():
+                    continue
+
+                new_cost = cost + link.target.get_path_weight()
+
+                if new_cost < dist.get(neighbor_name, math.inf):
+                    dist[neighbor_name] = new_cost
+                    came_from[neighbor_name] = current
+                    heappush(heap, (new_cost, neighbor_name))
+
+        return (math.inf, [])
 
     def _reconstruct_path(
         self,
-        graph: Graph,
-        goal_name: str,
         came_from: dict[str, str | None],
-    ) -> list[Zone]:
-        """Reconstruct the shortest path by walking came_from backwards from goal.
+        current: str,
+    ) -> list[str]:
+        """Reconstruct path from came_from map.
 
         Args:
-            graph:     The drone network graph.
-            goal_name: Name of the destination zone.
-            came_from: Predecessor map built by Dijkstra.
+            came_from: Mapping of zone name to its predecessor.
+            current: The destination zone name to trace back from.
 
         Returns:
-            Ordered list of Zone objects from start to goal.
-            Empty list if goal was never reached.
+            List of zone names from start to current (inclusive).
         """
-        # Goal unreachable — came_from[goal] was never updated from None
-        if came_from.get(goal_name) is None and goal_name != graph.start_hub.name:
+        path: list[str] = []
+        node: str | None = current
+        while node is not None:
+            path.append(node)
+            node = came_from.get(node)
+        path.reverse()
+        return path
+
+    def _yen(self) -> list[tuple[float, list[str]]]:
+        """Yen's K-shortest loopless paths algorithm.
+
+        Returns:
+            List of (cost, path) tuples sorted by cost.
+        """
+        first_cost, first_path = self._dijkstra(self._start, self._goal)
+        if not first_path:
             return []
 
-        path: list[str] = []
-        current_zone_name: str | None = goal_name
+        paths: list[tuple[float, list[str]]] = [(first_cost, first_path)]
 
-        # Walk backwards: goal -> ... -> start (stops when came_from is None)
-        while current_zone_name is not None:
-            path.append(current_zone_name)
-            current_zone_name = came_from[current_zone_name]
+        for _k in range(1, self._k):
+            if _k - 1 >= len(paths):
+                break
+            prev_path = paths[_k - 1][1]
 
-        path.reverse()
-        return [graph.zones[zone_name] for zone_name in path]
+            for i in range(len(prev_path) - 1):
+                spur_node = prev_path[i]
+                root_path = prev_path[: i + 1]
+
+                excluded_nodes: set[str] = set(root_path) - {spur_node}
+
+                excluded_edges: set[frozenset[str]] = set()
+                for _, existing_path in paths:
+                    if existing_path[: i + 1] == root_path and i + 1 < len(
+                        existing_path
+                    ):
+                        edge = frozenset({existing_path[i], existing_path[i + 1]})
+                        excluded_edges.add(edge)
+
+                spur_cost, spur_path = self._dijkstra(
+                    spur_node, self._goal, excluded_nodes, excluded_edges
+                )
+
+                if not spur_path:
+                    continue
+
+                total_path = root_path[:-1] + spur_path
+                total_cost = self._path_cost(total_path)
+
+                if not any(p == total_path for _, p in paths):
+                    paths.append((total_cost, total_path))
+                    paths.sort(key=lambda x: x[0])
+
+            if len(paths) >= self._k:
+                break
+
+        return paths[: self._k]
+
+    def _path_cost(self, path: list[str]) -> float:
+        """Calculate total cost of a path.
+
+        Args:
+            path: List of zone names.
+
+        Returns:
+            Total movement cost (start zone weight excluded).
+        """
+        if len(path) <= 1:
+            return 0.0
+        cost = 0.0
+        for name in path[1:]:
+            cost += self._graph.zones[name].get_path_weight()
+        return cost
