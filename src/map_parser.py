@@ -7,14 +7,22 @@ from pathlib import Path
 class ParsingError(Exception):
     """Base exception for all parsing errors, includes optional line number."""
 
-    def __init__(self, message: str, line: int | None = None) -> None:
-        """Initialize with error message and optional line number.
+    def __init__(
+        self, message: str, linenb: int | None = None, line: str | None = None
+    ) -> None:
+        """Initialize with error message and optional line number / source line.
 
         Args:
             message: A description of the parsing error.
-            line: The line number where the error occurred, if applicable.
+            linenb: The line number where the error occurred, if applicable.
+            line: The raw source line that caused the error, if applicable.
         """
-        super().__init__(f"Line {line}: {message}" if line else message)
+
+        if linenb is not None:
+            message = f"Line {linenb}: {message}"
+        if line is not None:
+            message += f" -> `{line}`"
+        super().__init__(message)
 
 
 class ZoneType(Enum):
@@ -64,6 +72,7 @@ class Zone(BaseModel):
 
     @model_validator(mode="after")
     def validate_zone(self) -> "Zone":
+        """Validate zone constraints: name format, max_drones, and color."""
         if "-" in self.name or " " in self.name:
             raise ParsingError(
                 f"Zone name '{self.name}' must not contain dashes or spaces"
@@ -83,6 +92,7 @@ class Zone(BaseModel):
         return 1.0
 
     def is_accessible(self) -> bool:
+        """Check whether this zone can be entered by a drone."""
         return self.zone_type != ZoneType.BLOCKED
 
 
@@ -106,6 +116,17 @@ class MapParser:
 
     @staticmethod
     def __load_file(filepath: str) -> Path:
+        """Load and validate the map file path.
+
+        Args:
+            filepath: Path to the .txt map file.
+
+        Returns:
+            A Path object pointing to the existing .txt file.
+
+        Raises:
+            ParsingError: If the file doesn't exist or isn't a .txt file.
+        """
         file = Path(filepath)
 
         if not file.exists():
@@ -117,6 +138,17 @@ class MapParser:
 
     @staticmethod
     def __remove_comments(map_data: str) -> str:
+        """Strip comments and blank lines from raw map data.
+
+        Everything after a ``#`` character is treated as a comment.
+        Lines that become empty after stripping are removed entirely.
+
+        Args:
+            map_data: Raw text content of a map file.
+
+        Returns:
+            Clean map content with one significant line per entry.
+        """
         return "\n".join(
             line.split("#", 1)[0].strip()
             for line in map_data.splitlines()
@@ -125,19 +157,38 @@ class MapParser:
 
     @staticmethod
     def __parse_hub(line: str, linenb: int, zones: dict[str, Zone]) -> Zone:
+        """Parse a single hub/zone definition line.
+
+        Expected format::
+
+            hub <name> <x> <y> [zone=<type>] [color=<c>] [max_drones=<n>]
+
+        Args:
+            line:   The raw line from the map file.
+            linenb: Current line number (for error reporting).
+            zones:  Accumulated zones dict (used for duplicate detection).
+
+        Returns:
+            A new Zone instance.
+
+        Raises:
+            ParsingError: On invalid format, duplicates, or bad metadata.
+        """
         parts = line.split()[1:]
         try:
             name = parts[0]
             x = int(parts[1])
             y = int(parts[2])
         except (IndexError, ValueError) as e:
-            raise ParsingError(f"Invalid hub format: {e}", linenb)
+            raise ParsingError(f"Invalid hub format: {e}", linenb, line)
         zone_type = ZoneType.NORMAL
         color = None
         max_drones = 1
         meta_str = " ".join(parts[3:])
         if meta_str:
             for kv in meta_str.removeprefix("[").removesuffix("]").split():
+                if "=" not in kv:
+                    raise ParsingError("Invalid metadata format", linenb, line)
                 key, val = kv.split("=", 1)
                 if key == "zone":
                     try:
@@ -147,6 +198,7 @@ class MapParser:
                             f"Invalid zone type '{val}', must be one"
                             + "of: normal, blocked, restricted, priority",
                             linenb,
+                            line,
                         )
                 elif key == "color":
                     color = val
@@ -157,13 +209,16 @@ class MapParser:
                         raise ParsingError(
                             f"max_drones must be a positive integer, got '{val}'",
                             linenb,
+                            line,
                         )
                 else:
-                    raise ParsingError(f"Unknown metadata key '{key}'", linenb)
+                    raise ParsingError(f"Unknown metadata key '{key}'", linenb, line)
         if name in zones:
-            raise ParsingError(f"Zone '{name}' already exists", linenb)
+            raise ParsingError(f"Zone '{name}' already exists", linenb, line)
         if any(z.x == x and z.y == y for z in zones.values()):
-            raise ParsingError(f"Zone at coordinates ({x}, {y}) already exists", linenb)
+            raise ParsingError(
+                f"Zone at coordinates ({x}, {y}) already exists", linenb, line
+            )
         return Zone(
             name=name,
             x=x,
@@ -180,39 +235,62 @@ class MapParser:
         zones: dict[str, Zone],
         connections: list[Connection],
     ) -> Connection:
+        """Parse a connection definition line.
+
+        Expected format::
+
+            connection: <zone1>-<zone2> [max_link_capacity=<n>]
+
+        Also appends directional Link objects to each involved zone.
+
+        Args:
+            line:        The raw line from the map file.
+            linenb:      Current line number (for error reporting).
+            zones:       Accumulated zones dict (lookup by name).
+            connections: Accumulated connections list (duplicate check).
+
+        Returns:
+            A new Connection instance.
+
+        Raises:
+            ParsingError: On unknown zones, duplicate connections, or bad metadata.
+        """
         content = line.removeprefix("connection:").strip()
         parts = content.split()
 
         zone1, zone2 = parts[0].split("-", 1)
 
         if zone1 not in zones or zone2 not in zones:
-            raise ParsingError(f"Unknown zone in connection '{zone1}-{zone2}'", linenb)
+            raise ParsingError(
+                f"Unknown zone in connection '{zone1}-{zone2}'", linenb, line
+            )
         if any(
             (c.zone1.name == zone1 and c.zone2.name == zone2)
             or (c.zone2.name == zone1 and c.zone1.name == zone2)
             for c in connections
         ):
             raise ParsingError(
-                f"Connection between '{zone1}-{zone2}' already exists", linenb
+                f"Connection between '{zone1}-{zone2}' already exists", linenb, line
             )
         capacity = 1
         if len(parts) > 1:
             meta_str = parts[1].strip("[]")
             if "=" not in meta_str:
-                raise ParsingError("Invalid metadata format", linenb)
+                raise ParsingError("Invalid metadata format", linenb, line)
             key, val = meta_str.split("=", 1)
             if key != "max_link_capacity":
-                raise ParsingError(f"Unknown connection metadata key '{key}'", linenb)
+                raise ParsingError(
+                    f"Unknown connection metadata key '{key}'", linenb, line
+                )
             try:
                 capacity = int(val)
                 if capacity < 1:
                     raise ParsingError(
-                        "max_link_capacity should be positive integer", linenb
+                        "max_link_capacity should be positive integer", linenb, line
                     )
             except ValueError:
                 raise ParsingError(
-                    f"max_link_capacity must be an integer, got '{val}'",
-                    linenb,
+                    f"max_link_capacity must be an integer, got '{val}'", linenb, line
                 )
 
         conn = Connection(
@@ -225,6 +303,21 @@ class MapParser:
         return conn
 
     def parse(self, filepath: str) -> Graph:
+        """Parse a complete map file into a Graph object.
+
+        The file must start with ``nb_drones: <int>``, followed by
+        hub and connection definitions.  Exactly one ``start_hub``
+        and one ``end_hub`` are required.
+
+        Args:
+            filepath: Path to the ``.txt`` map file.
+
+        Returns:
+            A fully populated Graph ready for pathfinding / simulation.
+
+        Raises:
+            ParsingError: On any structural or semantic error in the file.
+        """
         lines = self.__remove_comments(
             self.__load_file(filepath).read_text()
         ).splitlines()
@@ -239,9 +332,11 @@ class MapParser:
         if lines[0].startswith("nb_drones:"):
             try:
                 nb_drones = int(lines[0][len("nb_drones:") :].strip())
-            except (ValueError, IndexError) as e:
+            except IndexError:
+                raise ParsingError("Map file is empty or missing 'nb_drones' line")
+            except ValueError:
                 raise ParsingError(
-                    f"Invalid nb_drones value or format in the map file: {e}"
+                    f"'nb_drones' value is not a valid integer: '{lines[0]}'"
                 )
             if nb_drones < 1:
                 raise ParsingError("nb_drones must be at least 1")
@@ -258,12 +353,14 @@ class MapParser:
                 if line.startswith("start_hub"):
                     if start_hub is not None:
                         raise ParsingError(
-                            "Multiple start_hub definitions found", linenb
+                            "Multiple start_hub definitions found", linenb, line
                         )
                     start_hub = hub
                 elif line.startswith("end_hub"):
                     if end_hub is not None:
-                        raise ParsingError("Multiple end_hub definitions found", linenb)
+                        raise ParsingError(
+                            "Multiple end_hub definitions found", linenb, line
+                        )
                     end_hub = hub
 
             elif line.startswith("connection:"):
@@ -290,6 +387,6 @@ class MapParser:
         )
 
 
-Zone.model_rebuild()
-Connection.model_rebuild()
-Link.model_rebuild()
+_ = Zone.model_rebuild()
+_ = Connection.model_rebuild()
+_ = Link.model_rebuild()

@@ -206,5 +206,12 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-./tasks.sh
-./TODO.md
+tasks.sh
+TODO.md
+zip.sh
+*.zip
+visual/
+
+tmp
+*.tar.gz
+*.txt

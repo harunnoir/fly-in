@@ -1,10 +1,11 @@
 .PHONY: install run debug clean lint lint-strict
 
-install:
-	pip install mypy flake8 colorama
-
 run:
-	python main.py
+	@command -v uv >/dev/null 2>&1 || (curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$$HOME/.local/bin:$$PATH")
+	uv run main.py ./maps/easy/01_linear_path.txt
+
+install:
+	uv add mypy flake8 colorama
 
 debug:
 	python -m pdb main.py
