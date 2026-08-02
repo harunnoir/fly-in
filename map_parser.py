@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 from enum import Enum
-from pydantic import BaseModel, model_validator, Field
 from pathlib import Path
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class ParsingError(Exception):

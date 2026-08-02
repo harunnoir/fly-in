@@ -1,6 +1,8 @@
-import sys
-from src import MapParser, ParsingError, PathFinder
 import argparse
+import sys
+
+from map_parser import MapParser, ParsingError
+from pathfinder import PathFinder
 
 
 def parse_args() -> argparse.Namespace:
@@ -20,15 +22,13 @@ def main() -> int:
         print(f"[PARSING ERROR]: {e}")
         return 1
 
-    paths = PathFinder(graph).find()
-    if not paths:
+    path = PathFinder(graph).find()
+    if not path:
         print("No path possible on this map!")
         return 1
-    for cost, path in paths:
-        print(f"[cost={cost}] {' -> '.join(path)}")
+    print(f"[cost={path[0]}] {' -> '.join(path[1])}")
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -215,3 +215,4 @@ visual/
 tmp
 *.tar.gz
 *.txt
+*.pdf
