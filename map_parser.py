@@ -89,8 +89,8 @@ class Zone(BaseModel):
         """Returns the weight for the pathfinding algorithm."""
         if self.zone_type == ZoneType.RESTRICTED:
             return 2.0
-        if self.zone_type == ZoneType.PRIORITY:
-            return 0.9  # Prefer priority by making it 'cheaper' than 1.0
+        # if self.zone_type == ZoneType.PRIORITY:
+        #     return 0.9  # Prefer priority by making it 'cheaper' than 1.0
         return 1.0
 
     def is_accessible(self) -> bool:

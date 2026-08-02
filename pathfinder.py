@@ -1,52 +1,57 @@
 import math
 from heapq import heappop, heappush
 
-from map_parser import Graph, Link
+from map_parser import Graph, Link, ZoneType
 
 
 class PathFinder:
-    """Finds the current shortest path, accounting for live congestion."""
+    """Provides shortest-path finding utilities."""
 
-    _graph: Graph
-    _start: str
-    _goal: str
+    @staticmethod
+    def find(graph: Graph, start: str, end: str) -> tuple[float, list[str]]:
+        """Return (cost, path) for the current best route, or (inf, []) if none exists.
 
-    def __init__(self, graph: Graph) -> None:
-        """
         Args:
             graph: The parsed drone network graph.
+            start: Zone name to start from.
+            end: Zone name to reach.
         """
-        self._graph = graph
-        self._start = graph.start_hub.name
-        self._goal = graph.end_hub.name
+        return PathFinder._dijkstra(graph, start, end)
 
-    def find(self) -> tuple[float, list[str]]:
-        """Return (cost, path) for the current best route, or (inf, []) if none exists."""
-        return self._dijkstra(self._start, self._goal)
-
-    def _dijkstra(self, src: str, dst: str) -> tuple[float, list[str]]:
+    @staticmethod
+    def _dijkstra(
+        graph: Graph,
+        src: str,
+        dst: str,
+    ) -> tuple[float, list[str]]:
         """Standard Dijkstra, using live congestion-scaled edge weights.
 
         Args:
+            graph: The parsed drone network graph.
             src: Zone name to start from.
             dst: Zone name to reach.
         """
         best_cost: dict[str, float] = {src: 0.0}
         via: dict[str, str | None] = {src: None}
-        to_visit: list[tuple[float, str]] = [(0.0, src)]
+
+        to_visit: list[tuple[float, int, str]] = [(0.0, 1, src)]
         visited: set[str] = set()
 
         while to_visit:
-            cost_so_far, current_zone_name = heappop(to_visit)
+            cost_so_far, _, current_zone_name = heappop(to_visit)
 
             if current_zone_name in visited:
                 continue
+
             visited.add(current_zone_name)
 
             if current_zone_name == dst:
-                return (cost_so_far, self._reconstruct_path(via, current_zone_name))
+                return (
+                    cost_so_far,
+                    PathFinder._reconstruct_path(via, current_zone_name),
+                )
 
-            current_zone = self._graph.zones[current_zone_name]
+            current_zone = graph.zones[current_zone_name]
 
             for link in current_zone.links:
                 neighbor_name = link.target.name
@@ -54,16 +59,25 @@ class PathFinder:
                 if not link.target.is_accessible():
                     continue
 
-                neighbor_cost = cost_so_far + self._get_dynamic_weight(link)
+                neighbor_cost = cost_so_far + PathFinder._get_dynamic_weight(link)
 
                 if neighbor_cost < best_cost.get(neighbor_name, math.inf):
                     best_cost[neighbor_name] = neighbor_cost
                     via[neighbor_name] = current_zone_name
-                    heappush(to_visit, (neighbor_cost, neighbor_name))
+
+                    heappush(
+                        to_visit,
+                        (
+                            neighbor_cost,
+                            0 if link.target.zone_type == ZoneType.PRIORITY else 1,
+                            neighbor_name,
+                        ),
+                    )
 
         return (math.inf, [])
 
-    def _get_dynamic_weight(self, link: Link) -> float:
+    @staticmethod
+    def _get_dynamic_weight(link: Link) -> float:
         """Zone weight, scaled up as the link fills toward capacity.
 
         Args:
@@ -72,10 +86,13 @@ class PathFinder:
         base_weight = link.target.get_path_weight()
         drones_on_link = len(link.connection.drones_in_transit)
         congestion_ratio = drones_on_link / link.connection.max_link_capacity
+
         return base_weight * (1 + congestion_ratio)
 
+    @staticmethod
     def _reconstruct_path(
-        self, via: dict[str, str | None], destination: str
+        via: dict[str, str | None],
+        destination: str,
     ) -> list[str]:
         """Walk the via map backward from destination to build the path.
 
@@ -85,8 +102,10 @@ class PathFinder:
         """
         path: list[str] = []
         zone_name: str | None = destination
+
         while zone_name is not None:
             path.append(zone_name)
             zone_name = via.get(zone_name)
+
         path.reverse()
         return path

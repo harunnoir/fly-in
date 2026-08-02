@@ -1,8 +1,13 @@
+#!/usr/bin/env python
 import argparse
 import sys
 
+# from rich.traceback import install
+#
+# install(show_locals=True)
 from map_parser import MapParser, ParsingError
 from pathfinder import PathFinder
+from simulation import Simulator
 
 
 def parse_args() -> argparse.Namespace:
@@ -22,11 +27,7 @@ def main() -> int:
         print(f"[PARSING ERROR]: {e}")
         return 1
 
-    path = PathFinder(graph).find()
-    if not path:
-        print("No path possible on this map!")
-        return 1
-    print(f"[cost={path[0]}] {' -> '.join(path[1])}")
+    Simulator(graph, PathFinder.find).run()
     return 0
 
 
