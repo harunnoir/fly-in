@@ -214,5 +214,7 @@ visual/
 
 tmp
 *.tar.gz
-*.txt
 *.pdf
+*.txt
+!maps/**/*.txt
+!maps/README.md
